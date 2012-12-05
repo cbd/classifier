@@ -1,5 +1,4 @@
-
--module(bayes_sup).
+-module(classifier_sup).
 
 -behaviour(supervisor).
 

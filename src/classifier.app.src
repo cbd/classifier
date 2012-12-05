@@ -1,4 +1,4 @@
-{application, bayes,
+{application, classifier,
  [
   {description, ""},
   {vsn, "1"},
@@ -7,6 +7,6 @@
                   kernel,
                   stdlib
                  ]},
-  {mod, { bayes_app, []}},
+  {mod, { classifier_app, []}},
   {env, []}
  ]}.
