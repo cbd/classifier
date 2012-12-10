@@ -6,6 +6,9 @@ all:
 quick:
 	rebar skip_deps=true compile
 
+run:
+	${ERL} -s classifier_app; \
+
 clean:
 	rm -f test/*.beam
 	rebar clean
