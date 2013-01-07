@@ -63,7 +63,7 @@ handle_call(tokens, _From, State = #state{ token_probabilities=Tokens}) ->
   {reply, dict:to_list(Tokens), State};
 
 handle_call({classify, Text}, _From, State = #state{token_probabilities=TokenProbabilities, pos_tokens=PosTokens, neg_tokens=NegTokens}) ->
-  Tokens = get_text_tokenized(Text),
+  Tokens = classifier_utils:get_text_tokenized(Text),
 
   % io:format("Tokens ~p~n",[Tokens]),
 
@@ -114,7 +114,7 @@ handle_call(_Request, _From, State) ->
 -spec handle_cast(term(), #state{}) -> {noreply, #state{}}.
 handle_cast({train, {Text, Classification}}, State = #state{pos_tokens=PosTokens, neg_tokens=NegTokens}) ->
   % io:format("training from text ~p ...~n",[{Text, Classification}]),
-  NewTokens = get_text_tokenized(Text),
+  NewTokens = classifier_utils:get_text_tokenized(Text),
 
   {NewPosTokens, NewNegTokens} =
     case Classification of
@@ -125,28 +125,29 @@ handle_cast({train, {Text, Classification}}, State = #state{pos_tokens=PosTokens
   {noreply, State#state{pos_tokens=NewPosTokens, neg_tokens=NewNegTokens}};
 handle_cast({train, Dir}, State = #state{pos_tokens=PosTokens, neg_tokens=NegTokens}) ->
   % io:format("training from Dir ~p ...~n",[Dir]),
-  Files = get_files(Dir),
+  Files = classifier_utils:get_files(Dir),
+  io:format("FILES ~p",[Files]),
   
-  NewPosTokens = lists:append(get_tokenized(pos, Files), PosTokens),
-  NewNegTokens = lists:append(get_tokenized(neg, Files), NegTokens),
+  NewPosTokens = lists:append(classifier_utils:get_tokenized(pos, Files), PosTokens),
+  NewNegTokens = lists:append(classifier_utils:get_tokenized(neg, Files), NegTokens),
 
-  TokenProbabilities = calculate_token_probabilities(NewPosTokens, NewNegTokens),
+  TokenProbabilities = classifier_utils:calculate_probabilities(NewPosTokens, NewNegTokens, ?MINIMUM_APPEARANCES, ?MIN_PROBABILITY, ?MAX_PROBABILITY),
 
   % io:format("training done.~n"),
   {noreply, State#state{token_probabilities=TokenProbabilities, pos_tokens=NewPosTokens, neg_tokens=NewNegTokens}};
 
 handle_cast(update_probabilities, State = #state{pos_tokens=PosTokens, neg_tokens=NegTokens}) ->
   % io:format("updating tokens probabilities ...~n"),
-  {noreply, State#state{token_probabilities=calculate_token_probabilities(PosTokens, NegTokens)}};
+  {noreply, State#state{token_probabilities=classifier_utils:calculate_probabilities(PosTokens, NegTokens,?MINIMUM_APPEARANCES, ?MIN_PROBABILITY, ?MAX_PROBABILITY)}};
 
-handle_cast(Msg, State) ->
-  % io:format("bad message ~p",[Msg]),
+handle_cast(Term, State) ->
+  io:format("bad term ~p",[Term]),
   {noreply, State}.
 
 -spec handle_info(term(), #state{}) -> {noreply, #state{}}.
 handle_info(update_probabilities, State = #state{pos_tokens=PosTokens, neg_tokens=NegTokens}) ->
   % io:format("updating tokens probabilities ...~n"),
-  {noreply, State#state{token_probabilities=calculate_token_probabilities(PosTokens, NegTokens)}};
+  {noreply, State#state{token_probabilities=classifier_utils:calculate_probabilities(PosTokens, NegTokens, ?MINIMUM_APPEARANCES, ?MIN_PROBABILITY, ?MAX_PROBABILITY)}};
 
 handle_info(_Info, State) ->
   {noreply, State}.
@@ -158,53 +159,3 @@ terminate(_Reason, _State) ->
 -spec code_change(term(), #state{}, term()) -> {ok, #state{}}.
 code_change(_OldVsn, State, _Extra) ->
   {ok, State}.
-
-get_files(FolderName) ->
-  SubDirs = [{Tag,filename:join([FolderName, Sub])} || {Sub,Tag} <- [{"neg", neg},{"pos", pos}]],
-  Files = [[{Tag,File} || File <- filelib:wildcard(filename:join([Dir,"*.txt"]))] || {Tag,Dir} <- SubDirs],
-  lists:foldl(fun(More, Accum) -> More ++ Accum end, [], Files).
-
-get_tokenized(Tag, Files) ->
-  lists:flatmap(fun({FileTag, Filename}) when FileTag == Tag ->
-    get_tokenized(Filename);
-  ({_, _}) -> []
-  end, Files).
-
-get_tokenized(FileName) -> {ok, Data} = file:read_file(FileName), re:split(Data, "[^a-zA-Z0-9]+").
-get_text_tokenized(Text) -> re:split(string:strip(Text), "[^a-zA-Z0-9]+").
-
-count_tokens(Tokens) ->
-  lists:foldl(fun(Token, Dict) -> 
-    case dict:find(Token, Dict) of
-      {ok, Count} -> dict:store(Token, Count+1, Dict);
-      error -> dict:store(Token, 1, Dict)
-    end 
-  end, dict:new(), Tokens).
-
-calculate_token_probabilities(PosTokens, NegTokens) ->
-  Tokens = lists:usort(PosTokens ++ NegTokens),
-  PosTokenCounts = count_tokens(PosTokens),
-  NegTokenCounts = count_tokens(NegTokens),
-  LengthPosTokens = length(PosTokens),
-  LengthNegTokens = length(NegTokens),
-
-  lists:foldl(fun(Token, Dict) ->
-    PosOcurrences = get_ocurrences(Token, PosTokenCounts),
-    NegOcurrences = get_ocurrences(Token, NegTokenCounts), 
-
-    case (PosOcurrences + NegOcurrences) < ?MINIMUM_APPEARANCES of
-      true -> Dict;
-      false ->
-        % PosResult = min(1, 2 * PosOcurrences / LengthPosTokens),
-        PosResult = try PosOcurrences / LengthPosTokens catch _:_ -> 0 end,
-        NegResult = try NegOcurrences / LengthNegTokens catch _:_ -> 0 end,
-        NegProbability = max(?MIN_PROBABILITY, min(?MAX_PROBABILITY, NegResult / (PosResult + NegResult))),
-        dict:store(Token, NegProbability, Dict)
-    end
-  end, dict:new(), Tokens).
-
-get_ocurrences(Token, TokenCounts) ->
-  case dict:find(Token, TokenCounts) of
-    {ok, Value} -> Value;
-    error -> 0
-  end.
