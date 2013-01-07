@@ -7,41 +7,39 @@
 -define(MAX_PROBABILITY, 0.99).
 -define(DEFAULT_PROBABILITY, 0.4).
 -define(THRESHOLD_PROBABILITY, 0.9).
--define(MAX_TEXT_TOKENS, 5). 
+-define(MAX_TEXT_TOKENS, 5).
 
 -record(state, {
-  token_probabilities :: dict(),
+  token_probabilities = dict:new() :: dict(),
   neg_tokens = [] :: list(),
-  pos_tokens = [] :: list(),
-  new_neg_tokens = [] :: list(),
-  new_pos_tokens = [] :: list()
+  pos_tokens = [] :: list()
   }).
 
 -export([start_link/0, init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
--export([state/0, train/1, tokens/0, classify/1, update_token_probabilities/0]).
+-export([state/0, train/1, tokens/0, classify/1, update_probabilities/0]).
 
 
 -spec start_link() -> {ok, pid()}.
 start_link() ->
   gen_server:start_link({local, ?MODULE}, ?MODULE,[],[]).
 
--spec train(string()) -> done.
-train(Dir) ->
-  gen_server:cast(?MODULE, {train, Dir}).
+-spec train(string() | {string(), pos | neg}) -> done.
+train(Data) ->
+  gen_server:cast(?MODULE, {train, Data}).
 
 -spec tokens() -> list().
 tokens() ->
   gen_server:call(?MODULE, tokens).
 
--spec classify(binary() | string()) -> float().
+-spec classify(binary() | string()) -> acceptable | unacceptable.
 classify(Text) when is_binary(Text) ->
   classify(binary_to_list(Text));
 classify(Text) ->
   gen_server:call(?MODULE, {classify, Text}).
 
--spec update_token_probabilities() -> ok.
-update_token_probabilities() ->
-  gen_server:cast(?MODULE, update_token_probabilities).
+-spec update_probabilities() -> ok.
+update_probabilities() ->
+  gen_server:cast(?MODULE, update_probabilities).
 
 -spec state() -> #state{}.
 state() ->
@@ -53,7 +51,9 @@ state() ->
 
 -spec init([]) -> {ok,#state{}}.
 init([]) ->
-  {ok, #state{token_probabilities = dict:new()}}.
+  {ok, Timeout} = application:get_env(classifier, update_probabilities_timeout),
+  timer:send_interval(Timeout, self(), update_probabilities),
+  {ok, #state{}}.
 
 -spec handle_call(term(), pid(), #state{}) -> {reply, term(), #state{}} | {noreply, #state{}}.
 handle_call(state, _From, State) ->
@@ -62,10 +62,10 @@ handle_call(state, _From, State) ->
 handle_call(tokens, _From, State = #state{ token_probabilities=Tokens}) ->
   {reply, dict:to_list(Tokens), State};
 
-handle_call({classify, Text}, _From, State = #state{token_probabilities=TokenProbabilities, new_pos_tokens=PosTokens, new_neg_tokens=NegTokens}) ->
-  Tokens = re:split(string:strip(Text), "[^a-zA-Z0-9]+"),
+handle_call({classify, Text}, _From, State = #state{token_probabilities=TokenProbabilities, pos_tokens=PosTokens, neg_tokens=NegTokens}) ->
+  Tokens = get_text_tokenized(Text),
 
-  io:format("Tokens ~p~n",[Tokens]),
+  % io:format("Tokens ~p~n",[Tokens]),
 
   Probalities = 
     lists:foldl(fun(Token, Accum) ->
@@ -87,14 +87,14 @@ handle_call({classify, Text}, _From, State = #state{token_probabilities=TokenPro
       end
     end, [], Tokens),
 
-  io:format("Probalities ~p~n",[Probalities]),
+  % io:format("Probalities ~p~n",[Probalities]),
 
   {NegMultiplication, PosMultiplication} = 
     lists:foldl(fun(P, {Neg, Pos}) ->
       {Neg*P, Pos*(1-P)}
     end,{1,1}, Probalities),
 
-  io:format("NegMultiplication ~p~nPosMultiplication ~p ~n",[NegMultiplication, PosMultiplication]),
+  % io:format("NegMultiplication ~p~nPosMultiplication ~p ~n",[NegMultiplication, PosMultiplication]),
 
   TextProbability = NegMultiplication / (NegMultiplication + PosMultiplication),
   {TextStatus, NewPosTokens, NewNegTokens} =
@@ -104,44 +104,50 @@ handle_call({classify, Text}, _From, State = #state{token_probabilities=TokenPro
       false -> 
         {unacceptable, PosTokens, lists:append(Tokens, NegTokens)}
     end, 
+  % io:format("~n ~p is ~p (~p)~n",[Text, TextStatus, TextProbability]),
 
-  NewState = State#state{new_pos_tokens=NewPosTokens, new_neg_tokens=NewNegTokens},
-
-  {reply, {TextStatus, TextProbability}, NewState};
+  {reply, TextStatus, State#state{pos_tokens=NewPosTokens, neg_tokens=NewNegTokens}};
 
 handle_call(_Request, _From, State) ->
   {reply, ok, State}.
 
 -spec handle_cast(term(), #state{}) -> {noreply, #state{}}.
-handle_cast({train, Dir}, State = #state{new_pos_tokens=NewPosTokens, new_neg_tokens=NewNegTokens}) ->
-  io:format("training...~n"),
+handle_cast({train, {Text, Classification}}, State = #state{pos_tokens=PosTokens, neg_tokens=NegTokens}) ->
+  % io:format("training from text ~p ...~n",[{Text, Classification}]),
+  NewTokens = get_text_tokenized(Text),
+
+  {NewPosTokens, NewNegTokens} =
+    case Classification of
+      pos -> {lists:append(NewTokens, PosTokens), NegTokens};
+      neg -> {PosTokens, lists:append(NewTokens, NegTokens)}
+    end,
+
+  {noreply, State#state{pos_tokens=NewPosTokens, neg_tokens=NewNegTokens}};
+handle_cast({train, Dir}, State = #state{pos_tokens=PosTokens, neg_tokens=NegTokens}) ->
+  % io:format("training from Dir ~p ...~n",[Dir]),
   Files = get_files(Dir),
   
-  PosTokens = lists:append(get_tokenized(pos, Files), NewPosTokens),
-  NegTokens = lists:append(get_tokenized(neg, Files), NewNegTokens),
+  NewPosTokens = lists:append(get_tokenized(pos, Files), PosTokens),
+  NewNegTokens = lists:append(get_tokenized(neg, Files), NegTokens),
 
-  TokenProbabilities = calculate_token_probabilities(PosTokens, NegTokens),
+  TokenProbabilities = calculate_token_probabilities(NewPosTokens, NewNegTokens),
 
-  NewState = State#state{token_probabilities = TokenProbabilities, pos_tokens=PosTokens, neg_tokens=NegTokens, new_pos_tokens=[], new_neg_tokens=[]},
-  io:format("training done.~n"),
-  {noreply, NewState};
+  % io:format("training done.~n"),
+  {noreply, State#state{token_probabilities=TokenProbabilities, pos_tokens=NewPosTokens, neg_tokens=NewNegTokens}};
 
-handle_cast(update_token_probabilities, State = #state{new_pos_tokens=NewPosTokens, new_neg_tokens=NewNegTokens, pos_tokens=CurrentPosTokens, neg_tokens=CurrentNegTokens}) ->
-  io:format("updating tokens...~n"),
-  PosTokens = lists:append(NewPosTokens, CurrentPosTokens),
-  NegTokens = lists:append(NewNegTokens, CurrentNegTokens),
-
-  TokenProbabilities = calculate_token_probabilities(PosTokens, NegTokens),
-
-  NewState = State#state{token_probabilities=TokenProbabilities, pos_tokens=PosTokens, neg_tokens=NegTokens, new_pos_tokens=[], new_neg_tokens=[]},
-  io:format("updating done.~n"),
-  {noreply, NewState};
+handle_cast(update_probabilities, State = #state{pos_tokens=PosTokens, neg_tokens=NegTokens}) ->
+  % io:format("updating tokens probabilities ...~n"),
+  {noreply, State#state{token_probabilities=calculate_token_probabilities(PosTokens, NegTokens)}};
 
 handle_cast(Msg, State) ->
-  io:format("bad message ~p",[Msg]),
+  % io:format("bad message ~p",[Msg]),
   {noreply, State}.
 
 -spec handle_info(term(), #state{}) -> {noreply, #state{}}.
+handle_info(update_probabilities, State = #state{pos_tokens=PosTokens, neg_tokens=NegTokens}) ->
+  % io:format("updating tokens probabilities ...~n"),
+  {noreply, State#state{token_probabilities=calculate_token_probabilities(PosTokens, NegTokens)}};
+
 handle_info(_Info, State) ->
   {noreply, State}.
 
@@ -152,7 +158,6 @@ terminate(_Reason, _State) ->
 -spec code_change(term(), #state{}, term()) -> {ok, #state{}}.
 code_change(_OldVsn, State, _Extra) ->
   {ok, State}.
-
 
 get_files(FolderName) ->
   SubDirs = [{Tag,filename:join([FolderName, Sub])} || {Sub,Tag} <- [{"neg", neg},{"pos", pos}]],
@@ -166,6 +171,7 @@ get_tokenized(Tag, Files) ->
   end, Files).
 
 get_tokenized(FileName) -> {ok, Data} = file:read_file(FileName), re:split(Data, "[^a-zA-Z0-9]+").
+get_text_tokenized(Text) -> re:split(string:strip(Text), "[^a-zA-Z0-9]+").
 
 count_tokens(Tokens) ->
   lists:foldl(fun(Token, Dict) -> 
