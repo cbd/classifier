@@ -18,7 +18,6 @@
 -export([start_link/0, init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 -export([state/0, train/1, tokens/0, classify/1, update_probabilities/0]).
 
-
 -spec start_link() -> {ok, pid()}.
 start_link() ->
   gen_server:start_link({local, ?MODULE}, ?MODULE,[],[]).
@@ -45,8 +44,6 @@ update_probabilities() ->
 state() ->
   gen_server:call(?MODULE, state).
 
-
-
 %% ----------- %%
 
 -spec init([]) -> {ok,#state{}}.
@@ -65,38 +62,36 @@ handle_call(tokens, _From, State = #state{ token_probabilities=Tokens}) ->
 handle_call({classify, Text}, _From, State = #state{token_probabilities=TokenProbabilities, pos_tokens=PosTokens, neg_tokens=NegTokens}) ->
   Tokens = classifier_utils:get_text_tokenized(Text),
 
-  % io:format("Tokens ~p~n",[Tokens]),
-
   Probalities = 
     lists:foldl(fun(Token, Accum) ->
-      NewValue = 
+      %% Get the prob for this Token
+      Prob = 
         case dict:find(Token, TokenProbabilities) of
           {ok, Value} -> Value;
           error -> ?DEFAULT_PROBABILITY
         end,
 
+      %% Keep the most significative tokens
       % case length(Accum) == round(length(Tokens)/2) of
       case length(Accum) == ?MAX_TEXT_TOKENS of
-        false -> [NewValue | Accum] ;
+        false -> [Prob | Accum] ;
         true ->
           lists:sublist(
           lists:sort(fun(A, B) ->
             abs(A - 0.5) >= abs(B - 0.5)
-          end, [NewValue | Accum]), ?MAX_TEXT_TOKENS)
-          % end, [NewValue | Accum]), round(length(Tokens)/2))
+          end, [Prob | Accum]), ?MAX_TEXT_TOKENS)
+          % end, [Prob | Accum]), round(length(Tokens)/2))
       end
     end, [], Tokens),
-
-  % io:format("Probalities ~p~n",[Probalities]),
 
   {NegMultiplication, PosMultiplication} = 
     lists:foldl(fun(P, {Neg, Pos}) ->
       {Neg*P, Pos*(1-P)}
     end,{1,1}, Probalities),
 
-  % io:format("NegMultiplication ~p~nPosMultiplication ~p ~n",[NegMultiplication, PosMultiplication]),
-
   TextProbability = NegMultiplication / (NegMultiplication + PosMultiplication),
+  
+  %% Get the Result and the Updated Token Lists
   {TextStatus, NewPosTokens, NewNegTokens} =
     case TextProbability < ?THRESHOLD_PROBABILITY of
       true -> 
@@ -104,7 +99,6 @@ handle_call({classify, Text}, _From, State = #state{token_probabilities=TokenPro
       false -> 
         {unacceptable, PosTokens, lists:append(Tokens, NegTokens)}
     end, 
-  % io:format("~n ~p is ~p (~p)~n",[Text, TextStatus, TextProbability]),
 
   {reply, TextStatus, State#state{pos_tokens=NewPosTokens, neg_tokens=NewNegTokens}};
 
@@ -115,13 +109,11 @@ handle_call(_Request, _From, State) ->
 handle_cast({train, {Text, Classification}}, State = #state{pos_tokens=PosTokens, neg_tokens=NegTokens}) ->
   % io:format("training from text ~p ...~n",[{Text, Classification}]),
   NewTokens = classifier_utils:get_text_tokenized(Text),
-
   {NewPosTokens, NewNegTokens} =
     case Classification of
       pos -> {lists:append(NewTokens, PosTokens), NegTokens};
       neg -> {PosTokens, lists:append(NewTokens, NegTokens)}
     end,
-
   {noreply, State#state{pos_tokens=NewPosTokens, neg_tokens=NewNegTokens}};
 handle_cast({train, Dir}, State = #state{pos_tokens=PosTokens, neg_tokens=NegTokens}) ->
   % io:format("training from Dir ~p ...~n",[Dir]),
