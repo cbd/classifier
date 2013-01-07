@@ -11,8 +11,8 @@
 
 -record(state, {
   token_probabilities = dict:new() :: dict(),
-  neg_tokens = [] :: list(),
-  pos_tokens = [] :: list()
+  neg_tokens = dict:new() :: dict(),
+  pos_tokens = dict:new() :: dict()
   }).
 
 -export([start_link/0, init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
@@ -95,9 +95,9 @@ handle_call({classify, Text}, _From, State = #state{token_probabilities=TokenPro
   {TextStatus, NewPosTokens, NewNegTokens} =
     case TextProbability < ?THRESHOLD_PROBABILITY of
       true -> 
-        {acceptable, lists:append(Tokens, PosTokens), NegTokens};
+        {acceptable, classifier_utils:add_token_appearances(Tokens, PosTokens), NegTokens};
       false -> 
-        {unacceptable, PosTokens, lists:append(Tokens, NegTokens)}
+        {unacceptable, PosTokens, classifier_utils:add_token_appearances(Tokens, NegTokens)}
     end, 
 
   {reply, TextStatus, State#state{pos_tokens=NewPosTokens, neg_tokens=NewNegTokens}};
@@ -106,22 +106,22 @@ handle_call(_Request, _From, State) ->
   {reply, ok, State}.
 
 -spec handle_cast(term(), #state{}) -> {noreply, #state{}}.
-handle_cast({train, {Text, Classification}}, State = #state{pos_tokens=PosTokens, neg_tokens=NegTokens}) ->
-  % io:format("training from text ~p ...~n",[{Text, Classification}]),
+handle_cast({train, {Text, Tag}}, State = #state{pos_tokens=PosTokens, neg_tokens=NegTokens}) ->
+  % io:format("training from text ~p ...~n",[{Text, Tag}]),
   NewTokens = classifier_utils:get_text_tokenized(Text),
   {NewPosTokens, NewNegTokens} =
-    case Classification of
-      pos -> {lists:append(NewTokens, PosTokens), NegTokens};
-      neg -> {PosTokens, lists:append(NewTokens, NegTokens)}
+    case Tag of
+      pos -> {classifier_utils:add_token_appearances(NewTokens, PosTokens), NegTokens};
+      neg -> {PosTokens, classifier_utils:add_token_appearances(NewTokens, NegTokens)}
     end,
   {noreply, State#state{pos_tokens=NewPosTokens, neg_tokens=NewNegTokens}};
 handle_cast({train, Dir}, State = #state{pos_tokens=PosTokens, neg_tokens=NegTokens}) ->
   % io:format("training from Dir ~p ...~n",[Dir]),
   Files = classifier_utils:get_files(Dir),
-  io:format("FILES ~p",[Files]),
   
-  NewPosTokens = lists:append(classifier_utils:get_tokenized(pos, Files), PosTokens),
-  NewNegTokens = lists:append(classifier_utils:get_tokenized(neg, Files), NegTokens),
+  NewPosTokens = classifier_utils:add_token_appearances_from_files(pos, Files, PosTokens),
+  NewNegTokens = classifier_utils:add_token_appearances_from_files(neg, Files, NegTokens),
+  % NewNegTokens = classifier_utils:get_tokenized(neg, Files), NegTokens),
 
   TokenProbabilities = classifier_utils:calculate_probabilities(NewPosTokens, NewNegTokens, ?MINIMUM_APPEARANCES, ?MIN_PROBABILITY, ?MAX_PROBABILITY),
 
