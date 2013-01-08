@@ -1,7 +1,8 @@
 -module(classifier_utils).
 
 -export([get_files/1, get_tokenized/2, get_tokenized/1, get_text_tokenized/1, count_tokens/1, 
-        calculate_probabilities/5, get_ocurrences/2, add_token_appearances_from_files/3, add_token_appearances/2]).
+        calculate_probabilities/5, get_ocurrences/2, add_token_appearances_from_files/3, add_token_appearances/2,
+        delete_token_appearances/2]).
 
 -spec get_files(string()) -> [{pos | neg, string()}].
 get_files(FolderName) ->
@@ -21,7 +22,17 @@ add_token_appearances(TokenList, Tokens) ->
       {ok, Count} -> dict:store(Token, Count+1, TokenDict);
       error -> dict:store(Token, 1, TokenDict)
     end
-  end, Tokens, TokenList).  
+  end, Tokens, TokenList).
+
+-spec delete_token_appearances([string()], dict()) -> dict().
+delete_token_appearances(TokenList, Tokens) ->
+  lists:foldl(fun(Token, TokenDict) ->
+    case dict:find(Token, TokenDict) of
+      {ok, 1} -> dict:erase(Token, TokenDict);
+      {ok, Count} -> dict:store(Token, Count-1, TokenDict);
+      error -> TokenDict
+    end
+  end, Tokens, TokenList).
 
 -spec get_tokenized(pos | neg, [{pos | neg, string()}]) -> [string()].
 get_tokenized(Tag, Files) ->

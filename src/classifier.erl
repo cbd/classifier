@@ -16,7 +16,7 @@
   }).
 
 -export([start_link/0, init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
--export([state/0, train/1, tokens/0, classify/1, update_probabilities/0]).
+-export([state/0, train/1, tokens/0, classify/1, update_probabilities/0, false_positive/1]).
 
 -spec start_link() -> {ok, pid()}.
 start_link() ->
@@ -26,9 +26,9 @@ start_link() ->
 train(Data) ->
   gen_server:cast(?MODULE, {train, Data}).
 
--spec tokens() -> list().
-tokens() ->
-  gen_server:call(?MODULE, tokens).
+-spec false_positive(string()) -> ok.
+false_positive(Text) -> 
+  gen_server:cast(?MODULE, {false_positive, Text}).
 
 -spec classify(binary() | string()) -> acceptable | unacceptable.
 classify(Text) when is_binary(Text) ->
@@ -40,9 +40,16 @@ classify(Text) ->
 update_probabilities() ->
   gen_server:cast(?MODULE, update_probabilities).
 
+
+%% Debug functions
+
 -spec state() -> #state{}.
 state() ->
   gen_server:call(?MODULE, state).
+
+-spec tokens() -> list().
+tokens() ->
+  gen_server:call(?MODULE, tokens).
 
 %% ----------- %%
 
@@ -56,8 +63,8 @@ init([]) ->
 handle_call(state, _From, State) ->
   {reply, State, State};
 
-handle_call(tokens, _From, State = #state{ token_probabilities=Tokens}) ->
-  {reply, dict:to_list(Tokens), State};
+handle_call(tokens, _From, State = #state{token_probabilities=TokenProbabilities}) ->
+  {reply, dict:to_list(TokenProbabilities), State};
 
 handle_call({classify, Text}, _From, State = #state{token_probabilities=TokenProbabilities, pos_tokens=PosTokens, neg_tokens=NegTokens}) ->
   Tokens = classifier_utils:get_text_tokenized(Text),
@@ -107,7 +114,6 @@ handle_call(_Request, _From, State) ->
 
 -spec handle_cast(term(), #state{}) -> {noreply, #state{}}.
 handle_cast({train, {Text, Tag}}, State = #state{pos_tokens=PosTokens, neg_tokens=NegTokens}) ->
-  % io:format("training from text ~p ...~n",[{Text, Tag}]),
   NewTokens = classifier_utils:get_text_tokenized(Text),
   {NewPosTokens, NewNegTokens} =
     case Tag of
@@ -116,21 +122,23 @@ handle_cast({train, {Text, Tag}}, State = #state{pos_tokens=PosTokens, neg_token
     end,
   {noreply, State#state{pos_tokens=NewPosTokens, neg_tokens=NewNegTokens}};
 handle_cast({train, Dir}, State = #state{pos_tokens=PosTokens, neg_tokens=NegTokens}) ->
-  % io:format("training from Dir ~p ...~n",[Dir]),
   Files = classifier_utils:get_files(Dir),
   
   NewPosTokens = classifier_utils:add_token_appearances_from_files(pos, Files, PosTokens),
   NewNegTokens = classifier_utils:add_token_appearances_from_files(neg, Files, NegTokens),
-  % NewNegTokens = classifier_utils:get_tokenized(neg, Files), NegTokens),
 
   TokenProbabilities = classifier_utils:calculate_probabilities(NewPosTokens, NewNegTokens, ?MINIMUM_APPEARANCES, ?MIN_PROBABILITY, ?MAX_PROBABILITY),
 
-  % io:format("training done.~n"),
   {noreply, State#state{token_probabilities=TokenProbabilities, pos_tokens=NewPosTokens, neg_tokens=NewNegTokens}};
 
 handle_cast(update_probabilities, State = #state{pos_tokens=PosTokens, neg_tokens=NegTokens}) ->
-  % io:format("updating tokens probabilities ...~n"),
   {noreply, State#state{token_probabilities=classifier_utils:calculate_probabilities(PosTokens, NegTokens,?MINIMUM_APPEARANCES, ?MIN_PROBABILITY, ?MAX_PROBABILITY)}};
+
+handle_cast({false_positive, Text}, State = #state{pos_tokens=PosTokens, neg_tokens=NegTokens}) ->
+  Tokens = classifier_utils:get_text_tokenized(Text),
+  NewPosTokens = classifier_utils:add_token_appearances(Tokens, PosTokens),
+  NewNegTokens = classifier_utils:delete_token_appearances(Tokens, NegTokens),
+  {noreply, State#state{pos_tokens=NewPosTokens, neg_tokens=NewNegTokens}};
 
 handle_cast(Term, State) ->
   io:format("bad term ~p",[Term]),
@@ -138,7 +146,6 @@ handle_cast(Term, State) ->
 
 -spec handle_info(term(), #state{}) -> {noreply, #state{}}.
 handle_info(update_probabilities, State = #state{pos_tokens=PosTokens, neg_tokens=NegTokens}) ->
-  % io:format("updating tokens probabilities ...~n"),
   {noreply, State#state{token_probabilities=classifier_utils:calculate_probabilities(PosTokens, NegTokens, ?MINIMUM_APPEARANCES, ?MIN_PROBABILITY, ?MAX_PROBABILITY)}};
 
 handle_info(_Info, State) ->
