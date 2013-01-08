@@ -1,7 +1,9 @@
 -module(classifier_utils).
 
+-include("defaults.hrl").
+
 -export([get_files/1, get_tokenized/2, get_tokenized/1, get_text_tokenized/1, count_tokens/1, 
-        calculate_probabilities/5, get_ocurrences/2, add_token_appearances_from_files/3, add_token_appearances/2,
+        calculate_probabilities/2, get_ocurrences/2, add_token_appearances_from_files/3, add_token_appearances/2,
         delete_token_appearances/2]).
 
 -spec get_files(string()) -> [{pos | neg, string()}].
@@ -48,8 +50,8 @@ get_tokenized(FileName) -> {ok, Data} = file:read_file(FileName), re:split(Data,
 get_text_tokenized(Text) -> re:split(string:strip(Text), "[^a-zA-Z0-9]+").
 
 
--spec calculate_probabilities([string()], [string()], pos_integer(), float(), float()) -> dict().
-calculate_probabilities(PosTokens, NegTokens, MinAppearances, MinProb, MaxProb) ->
+-spec calculate_probabilities(dict(), dict()) -> dict().
+calculate_probabilities(PosTokens, NegTokens) ->
   Tokens = lists:usort([ Token || {Token, _Count} <- dict:to_list(PosTokens)] ++ 
                        [ Token || {Token, _Count} <- dict:to_list(NegTokens)]),
   LengthPosTokens = dict:size(PosTokens),
@@ -59,13 +61,13 @@ calculate_probabilities(PosTokens, NegTokens, MinAppearances, MinProb, MaxProb) 
     PosOcurrences = get_ocurrences(Token, PosTokens),
     NegOcurrences = get_ocurrences(Token, NegTokens), 
 
-    case (PosOcurrences + NegOcurrences) < MinAppearances of
+    case (PosOcurrences + NegOcurrences) < ?MINIMUM_APPEARANCES of
       true -> Dict;
       false ->
         % PosResult = min(1, 2 * PosOcurrences / LengthPosTokens),
         PosResult = try PosOcurrences / LengthPosTokens catch _:_ -> 0 end,
         NegResult = try NegOcurrences / LengthNegTokens catch _:_ -> 0 end,
-        NegProbability = max(MinProb, min(MaxProb, NegResult / (PosResult + NegResult))),
+        NegProbability = max(?MIN_PROBABILITY, min(?MAX_PROBABILITY, NegResult / (PosResult + NegResult))),
         dict:store(Token, NegProbability, Dict)
     end
   end, dict:new(), Tokens).

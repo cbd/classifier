@@ -2,12 +2,7 @@
 
 -behaviour(gen_server).
 
--define(MINIMUM_APPEARANCES, 5).
--define(MIN_PROBABILITY, 0.01).
--define(MAX_PROBABILITY, 0.99).
--define(DEFAULT_PROBABILITY, 0.4).
--define(THRESHOLD_PROBABILITY, 0.9).
--define(MAX_TEXT_TOKENS, 5).
+-include("defaults.hrl").
 
 -record(state, {
   token_probabilities = dict:new() :: dict(),
@@ -22,7 +17,16 @@
 start_link() ->
   gen_server:start_link({local, ?MODULE}, ?MODULE,[],[]).
 
--spec train(string() | {string(), pos | neg}) -> done.
+
+%% train/1 receives data to expand the corpus.
+%% The token probabilities are not updated in this function.
+%% Data can be
+%%  Dir: 
+%%    Path to some dir that contains two folders called pos and neg where there're files with texts to be tokenized;
+%%  {Tag, InfoType, Info}:
+%%    If Info is a string InfoType would be text and Info will be tokenized and stored in the Tag(pos or neg) side;
+%%    If Info is a string list InfoType would be text_list and each value in Info will be tokenized and stored in the Tag(pos or neg) side;
+-spec train(string() | {pos | neg, text | text_list, string() | [string()]} ) -> done.
 train(Data) ->
   gen_server:cast(?MODULE, {train, Data}).
 
@@ -113,7 +117,7 @@ handle_call(_Request, _From, State) ->
   {reply, ok, State}.
 
 -spec handle_cast(term(), #state{}) -> {noreply, #state{}}.
-handle_cast({train, {Text, Tag}}, State = #state{pos_tokens=PosTokens, neg_tokens=NegTokens}) ->
+handle_cast({train, {Tag, text, Text}}, State = #state{pos_tokens=PosTokens, neg_tokens=NegTokens}) ->
   NewTokens = classifier_utils:get_text_tokenized(Text),
   {NewPosTokens, NewNegTokens} =
     case Tag of
@@ -121,18 +125,22 @@ handle_cast({train, {Text, Tag}}, State = #state{pos_tokens=PosTokens, neg_token
       neg -> {PosTokens, classifier_utils:add_token_appearances(NewTokens, NegTokens)}
     end,
   {noreply, State#state{pos_tokens=NewPosTokens, neg_tokens=NewNegTokens}};
+
+handle_cast({train, {pos, text_list, TextList}}, State = #state{pos_tokens=PosTokens}) ->
+  NewPosTokens = classifier_utils:add_token_appearances(classifier_utils:get_text_tokenized(string:join(TextList, " ")), PosTokens),
+  {noreply, State#state{pos_tokens=NewPosTokens}};
+handle_cast({train, {neg, text_list, TextList}}, State = #state{neg_tokens=NegTokens}) ->
+  NewNegTokens = classifier_utils:add_token_appearances(classifier_utils:get_text_tokenized(string:join(TextList, " ")), NegTokens),
+  {noreply, State#state{neg_tokens=NewNegTokens}};
+
 handle_cast({train, Dir}, State = #state{pos_tokens=PosTokens, neg_tokens=NegTokens}) ->
   Files = classifier_utils:get_files(Dir),
-  
   NewPosTokens = classifier_utils:add_token_appearances_from_files(pos, Files, PosTokens),
   NewNegTokens = classifier_utils:add_token_appearances_from_files(neg, Files, NegTokens),
-
-  TokenProbabilities = classifier_utils:calculate_probabilities(NewPosTokens, NewNegTokens, ?MINIMUM_APPEARANCES, ?MIN_PROBABILITY, ?MAX_PROBABILITY),
-
-  {noreply, State#state{token_probabilities=TokenProbabilities, pos_tokens=NewPosTokens, neg_tokens=NewNegTokens}};
+  {noreply, State#state{pos_tokens=NewPosTokens, neg_tokens=NewNegTokens}};
 
 handle_cast(update_probabilities, State = #state{pos_tokens=PosTokens, neg_tokens=NegTokens}) ->
-  {noreply, State#state{token_probabilities=classifier_utils:calculate_probabilities(PosTokens, NegTokens,?MINIMUM_APPEARANCES, ?MIN_PROBABILITY, ?MAX_PROBABILITY)}};
+  {noreply, State#state{token_probabilities=classifier_utils:calculate_probabilities(PosTokens, NegTokens)}};
 
 handle_cast({false_positive, Text}, State = #state{pos_tokens=PosTokens, neg_tokens=NegTokens}) ->
   Tokens = classifier_utils:get_text_tokenized(Text),
@@ -146,7 +154,7 @@ handle_cast(Term, State) ->
 
 -spec handle_info(term(), #state{}) -> {noreply, #state{}}.
 handle_info(update_probabilities, State = #state{pos_tokens=PosTokens, neg_tokens=NegTokens}) ->
-  {noreply, State#state{token_probabilities=classifier_utils:calculate_probabilities(PosTokens, NegTokens, ?MINIMUM_APPEARANCES, ?MIN_PROBABILITY, ?MAX_PROBABILITY)}};
+  {noreply, State#state{token_probabilities=classifier_utils:calculate_probabilities(PosTokens, NegTokens)}};
 
 handle_info(_Info, State) ->
   {noreply, State}.
