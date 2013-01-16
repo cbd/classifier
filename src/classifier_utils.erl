@@ -4,7 +4,25 @@
 
 -export([get_files/1, get_tokenized/2, get_tokenized/1, get_text_tokenized/1, count_tokens/1, 
         calculate_probabilities/2, get_ocurrences/2, add_token_appearances_from_files/3, add_token_appearances/2,
-        delete_token_appearances/2]).
+        delete_token_appearances/2, get_env/1]).
+
+-spec get_env(atom()) -> number().
+get_env(Key) ->
+  case application:get_env(classifier, Key) of
+    {ok, Val} -> Val;
+    undefined -> get_env_default(Key)
+  end.
+
+get_env_default(Key) ->
+  case Key of
+    update_probabilities_timeout -> ?UPDATE_PROBALITIES_TIMEOUT;
+    default_probability -> ?DEFAULT_PROBABILITY;
+    max_text_tokens -> ?MAX_TEXT_TOKENS;
+    threshold_probability -> ?THRESHOLD_PROBABILITY;
+    min_probability -> ?MIN_PROBABILITY;
+    max_probability -> ?MAX_PROBABILITY;
+    minimun_appearances -> ?MINIMUM_APPEARANCES
+  end.
 
 -spec get_files(string()) -> [{pos | neg, string()}].
 get_files(FolderName) ->
@@ -61,13 +79,13 @@ calculate_probabilities(PosTokens, NegTokens) ->
     PosOcurrences = get_ocurrences(Token, PosTokens),
     NegOcurrences = get_ocurrences(Token, NegTokens), 
 
-    case (PosOcurrences + NegOcurrences) < ?MINIMUM_APPEARANCES of
+    case (PosOcurrences + NegOcurrences) < get_env(minimun_appearances) of
       true -> Dict;
       false ->
         % PosResult = min(1, 2 * PosOcurrences / LengthPosTokens),
         PosResult = try PosOcurrences / LengthPosTokens catch _:_ -> 0 end,
         NegResult = try NegOcurrences / LengthNegTokens catch _:_ -> 0 end,
-        NegProbability = max(?MIN_PROBABILITY, min(?MAX_PROBABILITY, NegResult / (PosResult + NegResult))),
+        NegProbability = max(get_env(min_probability), min(get_env(max_probability), NegResult / (PosResult + NegResult))),
         dict:store(Token, NegProbability, Dict)
     end
   end, dict:new(), Tokens).

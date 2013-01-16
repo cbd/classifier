@@ -79,18 +79,18 @@ handle_call({classify, Text}, _From, State = #state{token_probabilities=TokenPro
       Prob = 
         case dict:find(Token, TokenProbabilities) of
           {ok, Value} -> Value;
-          error -> ?DEFAULT_PROBABILITY
+          error -> classifier_utils:get_env(default_probability)
         end,
 
       %% Keep the most significative tokens
       % case length(Accum) == round(length(Tokens)/2) of
-      case length(Accum) == ?MAX_TEXT_TOKENS of
+      case length(Accum) == classifier_utils:get_env(max_text_tokens) of
         false -> [Prob | Accum] ;
         true ->
           lists:sublist(
           lists:sort(fun(A, B) ->
             abs(A - 0.5) >= abs(B - 0.5)
-          end, [Prob | Accum]), ?MAX_TEXT_TOKENS)
+          end, [Prob | Accum]), classifier_utils:get_env(max_text_tokens))
           % end, [Prob | Accum]), round(length(Tokens)/2))
       end
     end, [], Tokens),
@@ -104,7 +104,7 @@ handle_call({classify, Text}, _From, State = #state{token_probabilities=TokenPro
   
   %% Get the Result and the Updated Token Lists
   {TextStatus, NewPosTokens, NewNegTokens} =
-    case TextProbability < ?THRESHOLD_PROBABILITY of
+    case TextProbability < classifier_utils:get_env(threshold_probability) of
       true -> 
         {acceptable, classifier_utils:add_token_appearances(Tokens, PosTokens), NegTokens};
       false -> 
