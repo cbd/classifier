@@ -59,7 +59,7 @@ tokens() ->
 
 -spec init([]) -> {ok,#state{}}.
 init([]) ->
-  {ok, Timeout} = classifier_utils:get_env(update_probabilities_timeout),
+  Timeout = classifier_utils:get_env(update_probabilities_timeout),
   timer:send_interval(Timeout, self(), update_probabilities),
   {ok, #state{}}.
 
