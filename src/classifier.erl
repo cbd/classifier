@@ -26,7 +26,7 @@ start_link() ->
 %%  {Tag, InfoType, Info}:
 %%    If Info is a string InfoType would be text and Info will be tokenized and stored in the Tag(pos or neg) side;
 %%    If Info is a string list InfoType would be text_list and each value in Info will be tokenized and stored in the Tag(pos or neg) side;
--spec train(string() | {pos | neg, text | text_list, string() | [string()]} ) -> done.
+-spec train(string() | {pos | neg, text | text_list, string() | [string()]} ) -> ok.
 train(Data) ->
   gen_server:cast(?MODULE, {train, Data}).
 
@@ -63,7 +63,7 @@ init([]) ->
   timer:send_interval(Timeout, self(), update_probabilities),
   {ok, #state{}}.
 
--spec handle_call(term(), pid(), #state{}) -> {reply, term(), #state{}} | {noreply, #state{}}.
+-spec handle_call(term(), {pid(), term()}, #state{}) -> {reply, term(), #state{}} | {noreply, #state{}}.
 handle_call(state, _From, State) ->
   {reply, State, State};
 
