@@ -15,50 +15,58 @@ Its logic is based upon Paul Graham's [A Plan For Spam](http://www.paulgraham.co
 
   To configure classifier you use an application variable (probably in your app.config):
 
-  ```erlang  
-    {classifier, [  
-    >{update_probabilities_timeout, 300000}, %% milliseconds  
-    >{default_probability, 0.4},  
-    >{threshold_probability, 0.9},  
-    >{max_text_tokens, 5},  
-    >{minimun_appearances, 5}  
-    ]} 
-  ```
+```  
+{classifier, [  
+  {update_probabilities_timeout, 300000}, %% milliseconds  
+  {default_probability, 0.4},  
+  {threshold_probability, 0.9},  
+  {max_text_tokens, 5},  
+  {minimun_appearances, 5}  
+]} 
+```
 
   All the config params have a default value, so you can skip some or all of them in your config 
 
 ## <a name='usage'>Usage</a>
-  First of all you need to start the app:
-  ```erlang
+  * First of all you need to start the app:
+
+  ```
   application:start(classifier)
   ```
-  The next step is training the classifier. You can train it whenever you want and as many times as you want. You need to train it before the first time you start using your app.  
+  * The next step is training the classifier. You can train it whenever you want and as many times as you want. You need to train it before the first time you start using your app.  
   There're three ways to train it:  
   
-  * ```erlang
-  classifier:train(Dir)
-  ```  
-  where Dir is a path to some folder that contains two folders called pos and neg where there're files with texts to be analyzed.
-  You can find an example in priv/test dir.
+    * Passing a dir 
+    ```
+    classifier:train(Dir)
+    ```  
+  
+      Where Dir is a path to some folder that contains two folders called pos and neg where there're files with texts to be analyzed.
+      You can find an example in priv/test dir.
+  
+    * Passing a text
+    ```
+    classifier:train({Tag, text, Text})
+    ```  
+  
+      Where Tag is 'pos' or 'neg' and Text is a string to be putted on the Tag side.
+    
+    * Passing a text list
+    ```
+    classifier:train({Tag, text_list, Texts})
+    ``` 
 
-  * ```erlang
-  classifier:train({Tag, text, Text})
+      Where Tag is 'pos' or 'neg' and Texts is a list of strings to be pushed on the Tag side.
+  
+  * Now you can ask the classifier to analyze and classify some text:
   ```
-  Where Tag is 'pos' or 'neg' and Text is a string to be putted on the Tag side.
-  * ```erlang
-  classifier:train({Tag, text_list, Texts})
-  ```
-  Where Tag is 'pos' or 'neg' and Texts is a list of strings to be pushed on the Tag side.
-
-  Now you can ask the classifier to analyze and classify some text:
-  ```terminal
   1> classifier:classify(Text).
   acceptable
   2> classifier:classify(AnotherText).
   unacceptable
   ```
   Every time the classifier classify a text it learns about the result pushing the text analyzed on its pool
-
+  
 ## <a name='features'>Future Features</a>
   - Persist the info
   - Multiprocess to classify text and to update the state
