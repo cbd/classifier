@@ -11,7 +11,7 @@
   }).
 
 -export([start_link/0, init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
--export([state/0, train/1, tokens/0, classify/1, update_probabilities/0, false_positive/1]).
+-export([state/0, train/1, tokens/0, classify/1, classify/2, update_probabilities/0, false_positive/1]).
 
 -spec start_link() -> {ok, pid()}.
 start_link() ->
@@ -34,11 +34,15 @@ train(Data) ->
 false_positive(Text) -> 
   gen_server:cast(?MODULE, {false_positive, Text}).
 
--spec classify(binary() | string()) -> acceptable | unacceptable.
-classify(Text) when is_binary(Text) ->
-  classify(binary_to_list(Text));
+-spec classify(binary() | string()) -> acceptable | unacceptable | {acceptable | unacceptable, float()}.
 classify(Text) ->
-  gen_server:call(?MODULE, {classify, Text}).
+  classify(Text, []).
+
+-spec classify(binary() | string(), [proplists:property()]) -> acceptable | unacceptable | {acceptable | unacceptable, float()}.
+classify(Text, Options) when is_binary(Text) ->
+  classify(binary_to_list(Text), Options);
+classify(Text, Options) ->
+  gen_server:call(?MODULE, {classify, Text, Options}).
 
 -spec update_probabilities() -> ok.
 update_probabilities() ->
@@ -70,7 +74,7 @@ handle_call(state, _From, State) ->
 handle_call(tokens, _From, State = #state{token_probabilities=TokenProbabilities}) ->
   {reply, dict:to_list(TokenProbabilities), State};
 
-handle_call({classify, Text}, _From, State = #state{token_probabilities=TokenProbabilities, pos_tokens=PosTokens, neg_tokens=NegTokens}) ->
+handle_call({classify, Text, Options}, _From, State = #state{token_probabilities=TokenProbabilities, pos_tokens=PosTokens, neg_tokens=NegTokens}) ->
   Tokens = classifier_utils:get_text_tokenized(Text),
 
   Probalities = 
@@ -111,7 +115,13 @@ handle_call({classify, Text}, _From, State = #state{token_probabilities=TokenPro
         {unacceptable, PosTokens, classifier_utils:add_token_appearances(Tokens, NegTokens)}
     end, 
 
-  {reply, TextStatus, State#state{pos_tokens=NewPosTokens, neg_tokens=NewNegTokens}};
+  Reply = 
+    case proplists:get_value(include_probability, Options, false) of
+      true -> {TextStatus, TextProbability};
+      false -> TextStatus
+    end, 
+
+  {reply, Reply, State#state{pos_tokens=NewPosTokens, neg_tokens=NewNegTokens}};
 
 handle_call(_Request, _From, State) ->
   {reply, ok, State}.
