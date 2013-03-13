@@ -107,13 +107,18 @@ handle_call({classify, Text, Options}, _From, State = #state{token_probabilities
   TextProbability = NegMultiplication / (NegMultiplication + PosMultiplication),
   
   %% Get the Result and the Updated Token Lists
-  {TextStatus, NewPosTokens, NewNegTokens} =
+  TextStatus =
     case TextProbability < classifier_utils:get_env(threshold_probability) of
-      true -> 
-        {acceptable, classifier_utils:add_token_appearances(Tokens, PosTokens), NegTokens};
-      false -> 
-        {unacceptable, PosTokens, classifier_utils:add_token_appearances(Tokens, NegTokens)}
+      true -> acceptable;
+      false -> unacceptable
     end, 
+
+  {NewPosTokens, NewNegTokens} =
+    case {TextStatus, proplists:get_value(train, Options, true)} of
+      {_, false} -> {PosTokens, NegTokens};
+      {acceptable, true} -> {classifier_utils:add_token_appearances(Tokens, PosTokens), NegTokens};
+      {unacceptable, true} -> {PosTokens, classifier_utils:add_token_appearances(Tokens, NegTokens)}
+    end,
 
   Reply = 
     case proplists:get_value(include_probability, Options, false) of
