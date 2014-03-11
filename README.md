@@ -28,44 +28,43 @@ Its logic is based upon Paul Graham's [A Plan For Spam](http://www.paulgraham.co
   All the config params have a default value, so you can skip some or all of them in your config 
 
 ## <a name='usage'>Usage</a>
-  * First of all you need to start the app:
+  First of all you need to __start the app__:
 
   ```
   application:start(classifier)
   ```
-  * The next step is training the classifier. You can train it whenever you want and as many times as you want. You need to train it before the first time you start using your app.  
-  There're three ways to train it:  
+  The next step is training the classifier. You can train it whenever you want and as many times as you want. You need to train it before the first time you start using your app.  
+  There're three ways to __train it__:  
+  * Passing a __dir__ 
+     
+  ```
+  classifier:train(Dir)
+  ```  
   
-    * Passing a dir 
-    ```
-    classifier:train(Dir)
-    ```  
-  
-      Where Dir is a path to some folder that contains two folders called pos and neg where there're files with texts to be analyzed.
-      You can find an example in priv/test dir.
-  
-    * Passing a text
-    ```
-    classifier:train({Tag, text, Text})
-    ```  
+  Where Dir is a path to some folder that contains two folders called pos and neg where there're files with texts to be analyzed.
+  You can find an example in priv/test dir.
+  * Passing a __text__
+     
+      ```
+      classifier:train({Tag, text, Text})
+      ```  
   
       Where Tag is 'pos' or 'neg' and Text is a string to be putted on the Tag side.
-    
-    * Passing a text list
-    ```
-    classifier:train({Tag, text_list, Texts})
-    ``` 
-
-      Where Tag is 'pos' or 'neg' and Texts is a list of strings to be pushed on the Tag side.
+  * Passing a __text list__
+     
+      ```
+      classifier:train({Tag, text_list, Texts})
+      ``` 
+  Where Tag is 'pos' or 'neg' and Texts is a list of strings to be pushed on the Tag side.
   
-  * Now you can ask the classifier to analyze and classify some text:
+Now you can ask the classifier to analyze and classify some text:
   ```
   1> classifier:classify(Text).
   acceptable
   2> classifier:classify(AnotherText).
   unacceptable
   ```
-  Every time the classifier classify a text it learns about the result pushing the text analyzed on its pool
+Every time the classifier classify a text it learns about the result pushing the text analyzed on its pool
   
 ## <a name='features'>Future Features</a>
   - Persist the info
